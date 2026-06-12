@@ -184,11 +184,35 @@ go test -bench=. -benchmem
 
 ### Benchmark Results
 
-The VAD processes audio frames efficiently across various sample rates and frame sizes:
+Processing a single frame is allocation-free. Measured on an Apple M4 Max,
+reported as the median of 10 runs (`go test -bench=. -benchmem -benchtime=2s
+-count=10`, summarized with [benchstat](https://pkg.go.dev/golang.org/x/perf/cmd/benchstat)):
 
-- **8kHz audio**: ~50-100 ns/op for 20ms frames (160 samples)
-- **16kHz audio**: ~80-150 ns/op for 20ms frames (320 samples)  
-- **32kHz audio**: ~120-200 ns/op for 20ms frames (640 samples)
+| Sample rate | 10 ms | 20 ms | 30 ms |
+|-------------|-------|-------|-------|
+| 8000 Hz     | ~210 ns/op  | ~435 ns/op  | ~688 ns/op  |
+| 16000 Hz    | ~442 ns/op  | ~896 ns/op  | ~1426 ns/op |
+| 32000 Hz    | ~889 ns/op  | ~1896 ns/op | ~2968 ns/op |
+
+Run-to-run variation was ±1–6%. All `Process` benchmarks report **0 B/op,
+0 allocs/op**. Cost scales with the number of samples per frame, so processing
+time roughly doubles with each step up in sample rate or frame duration.
+
+### Real-time performance
+
+What matters in practice is how the per-frame cost compares to the amount of
+audio in each frame. Even the heaviest configuration processes audio thousands
+of times faster than real time:
+
+| Config        | Time / frame | Audio / frame | Faster than real time |
+|---------------|--------------|---------------|-----------------------|
+| 8kHz / 20ms   | ~435 ns      | 20 ms         | ~46,000×              |
+| 32kHz / 30ms  | ~2968 ns     | 30 ms         | ~10,100×              |
+
+In other words, classifying a frame takes a tiny fraction of the time that frame
+represents. Combined with zero per-frame allocations, a single core can sustain
+thousands of concurrent audio streams before VAD becomes a bottleneck — making
+this suitable for real-time telephony and streaming workloads.
 
 ### Available Benchmarks
 
