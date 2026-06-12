@@ -197,12 +197,24 @@ func TestStreamVADReset(t *testing.T) {
 		t.Fatalf("NewStreamVAD() failed: %v", err)
 	}
 
+	// Configure a non-default mode so we can verify Reset reapplies it.
+	if err := stream.SetMode(3); err != nil {
+		t.Fatal(err)
+	}
+
 	// Add some data
 	partialFrame := make([]byte, 100)
-	stream.Process(partialFrame)
+	if _, err := stream.Process(partialFrame); err != nil {
+		t.Fatal(err)
+	}
 
-	// Reset should clear buffer
-	stream.Reset()
+	// Reset should clear buffer and reset VAD state.
+	if err := stream.Reset(); err != nil {
+		t.Fatalf("Reset() failed: %v", err)
+	}
+	if stream.mode != 3 {
+		t.Errorf("Reset should preserve configured mode, got %d", stream.mode)
+	}
 
 	// Flush should not return anything
 	results, err := stream.Flush()
@@ -211,6 +223,26 @@ func TestStreamVADReset(t *testing.T) {
 	}
 	if len(results) != 0 {
 		t.Error("Reset should clear buffer")
+	}
+}
+
+func TestVADReset(t *testing.T) {
+	vad, err := New()
+	if err != nil {
+		t.Fatalf("New() failed: %v", err)
+	}
+
+	if err := vad.SetMode(3); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := vad.Reset(); err != nil {
+		t.Fatalf("Reset() failed: %v", err)
+	}
+
+	// VAD should remain usable after a reset.
+	if _, err := vad.Process(8000, make([]byte, 320)); err != nil {
+		t.Errorf("Process after Reset failed: %v", err)
 	}
 }
 

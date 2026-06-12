@@ -1,6 +1,6 @@
 module github.com/alex-savin/go-webrtcvad
 
-go 1.25.1
+go 1.26
 
 require github.com/go-audio/wav v1.1.0
 

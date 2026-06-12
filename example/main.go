@@ -41,9 +41,6 @@ func main() {
 	if format.NumChannels != 1 {
 		log.Fatal("expected mono file")
 	}
-	if rate != 32000 {
-		log.Fatal("expected 32kHz file")
-	}
 
 	vad, err := webrtcvad.New()
 	if err != nil {
@@ -54,36 +51,27 @@ func main() {
 		log.Fatal(err)
 	}
 
-	frameSize := 320 * 2 // 20ms at 32kHz = 640 samples = 1280 bytes, but wait
-	// For 32kHz, 20ms = 640 samples = 1280 bytes
-	// But the original used 320*2 = 640 bytes, which is 320 samples = 10ms at 32kHz
-	// Let me check the original: frame := make([]byte, 320*2) for 32kHz, 320 samples * 2 bytes = 640 bytes
-	// 320 samples at 32kHz = 10ms
+	// Use 10ms frames: frameSamples samples per frame, 2 bytes per 16-bit sample.
+	frameSamples := rate / 100
+	frameSize := frameSamples * 2
 
-	frameSize = 640 // 320 samples * 2 bytes for 16-bit
-
-	if ok := vad.ValidRateAndFrameLength(rate, frameSize/2); !ok {
+	if ok := vad.ValidRateAndFrameLength(rate, frameSamples); !ok {
 		log.Fatal("invalid rate or frame length")
 	}
 
 	var isActive bool
-	var offset int
+	var offset int // in samples
 
 	report := func() {
-		t := time.Duration(offset) * time.Second / time.Duration(rate) / 2
+		t := time.Duration(offset) * time.Second / time.Duration(rate)
 		fmt.Printf("isActive = %v, t = %v\n", isActive, t)
 	}
 
 	data := buf.Data
-	for i := 0; i < len(data); i += frameSize / 2 {
-		end := i + frameSize/2
-		if end > len(data) {
-			break
-		}
-
-		// Convert int slice to byte slice
+	for i := 0; i+frameSamples <= len(data); i += frameSamples {
+		// Convert the int samples to a 16-bit little-endian byte frame.
 		frame := make([]byte, frameSize)
-		for j := 0; j < frameSize/2; j++ {
+		for j := 0; j < frameSamples; j++ {
 			sample := int16(data[i+j])
 			frame[j*2] = byte(sample & 0xff)
 			frame[j*2+1] = byte((sample >> 8) & 0xff)
@@ -99,7 +87,7 @@ func main() {
 			report()
 		}
 
-		offset += frameSize / 2
+		offset += frameSamples
 	}
 
 	report()

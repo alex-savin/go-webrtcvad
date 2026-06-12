@@ -3,7 +3,7 @@
 [![Go Reference](https://pkg.go.dev/badge/github.com/alex-savin/go-webrtcvad.svg)](https://pkg.go.dev/github.com/alex-savin/go-webrtcvad)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-A Go port of [py-webrtcvad](https://github.com/wiseman/py-webrtcvad) Voice Activity Detector (VAD).
+A Go (cgo) wrapper around Google's WebRTC Voice Activity Detector (VAD) — the same C sources used by [py-webrtcvad](https://github.com/wiseman/py-webrtcvad).
 
 A VAD classifies a piece of audio data as being voiced or unvoiced. It can be useful for telephony and speech recognition.
 
@@ -16,6 +16,14 @@ The VAD originally developed for the WebRTC project by Google is one of the best
 - **Fast** - Optimized for real-time processing
 - **Modern** - Based on current state-of-the-art algorithms  
 - **Free** - Open source with MIT license
+
+## Requirements
+
+- **Go 1.26 or newer**
+- **cgo enabled with a working C compiler** (e.g. `gcc` or `clang`). The WebRTC
+  VAD sources are vendored and compiled with the package, so you do **not** need
+  a system WebRTC installation — but cgo must be available (`CGO_ENABLED=1`,
+  which is the default for native builds).
 
 ## Installation
 
@@ -122,9 +130,49 @@ results, err := stream.Process(audioChunk)
 
 // Flush remaining buffered data when stream ends
 finalResults, err := stream.Flush()
+
+// Reset clears the buffer and the VAD's internal state so the same
+// StreamVAD can be reused for an independent stream. The configured
+// aggressiveness mode is preserved.
+if err := stream.Reset(); err != nil {
+    log.Fatal(err)
+}
 ```
 
-See `example/streaming_demo.go` for a complete example.
+See `example/streaming/main.go` for a complete, runnable example (`go run ./example/streaming`).
+
+## API Reference
+
+### Supported audio formats
+
+Input must be mono, 16-bit little-endian signed PCM. The following sample rate
+and frame duration combinations are supported:
+
+| Sample rate | 10 ms | 20 ms | 30 ms |
+|-------------|-------|-------|-------|
+| 8000 Hz     | 80    | 160   | 240   |
+| 16000 Hz    | 160   | 320   | 480   |
+| 32000 Hz    | 320   | 640   | 960   |
+
+(values are samples per frame; multiply by 2 for bytes).
+
+### `VAD` — frame-based API
+
+- `New() (*VAD, error)` — create a VAD instance.
+- `(*VAD) SetMode(mode int) error` — set aggressiveness (0 = quality, 3 = very aggressive).
+- `(*VAD) Process(rate int, frame []byte) (bool, error)` — classify one frame; returns `true` for speech.
+- `(*VAD) Reset() error` — reinitialize internal state (reverts to the default mode).
+- `(*VAD) ValidRateAndFrameLength(rate, frameLength int) bool` — validate a rate/frame-length pair.
+
+### `StreamVAD` — streaming API
+
+- `NewStreamVAD(sampleRate, frameDuration int) (*StreamVAD, error)` — `frameDuration` in ms (10/20/30).
+- `(*StreamVAD) SetMode(mode int) error`
+- `(*StreamVAD) Process(audioData []byte) ([]bool, error)` — buffers input, returns one decision per complete frame.
+- `(*StreamVAD) Flush() ([]bool, error)` — process any remaining buffered data (padded with silence).
+- `(*StreamVAD) Reset() error` — clear the buffer and reset state, preserving the configured mode.
+
+`VAD` and `StreamVAD` are **not safe for concurrent use** by multiple goroutines.
 
 ## Performance Benchmarks
 
